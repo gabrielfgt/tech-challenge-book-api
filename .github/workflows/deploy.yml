@@ -39,4 +39,4 @@ jobs:
                 -H "Content-Type: application/json"
 
             - name: Smoke Test
-              run: python ./smoke_tests.main.py
+              run: python ./smoke_tests/main.py

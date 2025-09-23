@@ -12,6 +12,7 @@ jobs:
         runs-on: ubuntu-latest
         env:
             API_URL: "https://book-api-mlet.onrender.com"
+            GIT_HASH: ${{ github.sha }}
 
         steps:
             - name: Checkout
@@ -31,6 +32,8 @@ jobs:
               with:
                 push: true
                 tags: ${{ secrets.DOCKERHUB_LOGIN }}/book_api:latest
+                build-args: |
+                    GIT_HASH=${{ env.GIT_HASH }}
 
             - name: Sync with Render
               run: |

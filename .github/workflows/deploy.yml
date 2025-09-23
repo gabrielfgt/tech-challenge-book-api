@@ -42,4 +42,6 @@ jobs:
                 -H "Content-Type: application/json"
 
             - name: Smoke Test
-              run: python ./smoke_tests/main.py
+              run: |
+                sleep 20
+                python ./smoke_tests/main.py

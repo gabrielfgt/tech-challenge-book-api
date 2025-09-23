@@ -11,9 +11,9 @@ def test_version():
     api_hash = response.json()["version"]
 
     if git_hash != api_hash:
-        print("VERSION IS DIFFERENT")
+        raise Exception(f"The api version (${api_hash}) is different than the expected (${git_hash})")
 
-    print("[VERSION] ✅ Successfully accessed version")
+    print(f"[VERSION] ✅ Successfully accessed version - {api_hash}")
 
 
 def test_docs_route():
@@ -22,6 +22,6 @@ def test_docs_route():
         response.raise_for_status()
         print("[DOCS] ✅ Successfully accessed API Docs")        
     except requests.exceptions.RequestException as e:
-        print("Request Error:", e)
+        print("[DOCS] ❌ Request Error:", e)
 
 

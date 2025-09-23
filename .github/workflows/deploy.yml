@@ -37,3 +37,6 @@ jobs:
                 curl -X POST "https://api.render.com/v1/services/srv-d399ih8dl3ps73an6tkg/deploys" \
                 -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
                 -H "Content-Type: application/json"
+
+            - name: Smoke Test
+              run: python ./smoke_tests.main.py

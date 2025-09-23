@@ -1,11 +1,14 @@
-
-FROM python:3.13-slim
+# Use a imagem oficial do Python, mais leve
+FROM python:3.12-slim
 
 WORKDIR /app
 
+COPY requirements.txt .
+
+RUN pip install --no-cache-dir -r requirements.txt \
+    && rm -rf /root/.cache/pip
+
 COPY . .
-RUN pip install poetry 
-RUN poetry install --no-root
 
 EXPOSE 4000
 

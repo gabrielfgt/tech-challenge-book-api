@@ -12,4 +12,4 @@ COPY . .
 
 EXPOSE 4000
 
-CMD ["./ops_scripts/start_api.sh"]
+CMD ["opentelemetry-instrument", "uvicorn", "api.main:api", "--host", "0.0.0.0", "--port", "4000"]

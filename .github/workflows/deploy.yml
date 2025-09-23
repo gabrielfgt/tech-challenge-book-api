@@ -4,7 +4,6 @@ on:
     push:
         branches:
             - homolog
-            - change-to-pip
     workflow_dispatch:
 
 jobs:

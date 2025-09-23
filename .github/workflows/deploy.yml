@@ -4,12 +4,15 @@ on:
     push:
         branches:
             - homolog
+            - integrate-smoke-test
     workflow_dispatch:
 
 jobs:
     deploy_production:
         runs-on: ubuntu-latest
-        
+        env:
+            API_URL: "https://book-api-mlet.onrender.com"
+
         steps:
             - name: Checkout
               uses: actions/checkout@v4

@@ -1,8 +1,10 @@
 import requests
+import os
 
-AUTH_URL = "http://localhost:4000/auth/login"
-PRIVATE_URL = "http://localhost:4000/api/private"
-ADMIN_URL = "http://localhost:4000/admin"
+BASE_URL = os.getenv("API_URL", "http://localhost:4000")
+AUTH_URL = f"{BASE_URL}/auth/login"
+PRIVATE_URL = f"{BASE_URL}/api/private"
+ADMIN_URL = f"{BASE_URL}/admin"
 
 def test_authentication_flow():
     test_not_authorized_login()

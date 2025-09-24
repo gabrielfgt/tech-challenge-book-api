@@ -1,56 +1,31 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPBasic, HTTPBasicCredentials, HTTPAuthorizationCredentials, HTTPBearer
-from api.users.user import verify_user, get_user_by_id
-from api.auth.jwt_utils import decode_jwt, generate_refresh_token, generate_access_token
-from api.auth.auth_db import update_tokens
+from api.domain.users.service import UserService
+from api.domain.users.memory_repository import InMemoryUserRepository
+from api.domain.auth.jwt_utils import JWTUtils
+import api.domain.auth.auth_db as AuthDB
+from api.domain.login.service import LoginService
 
 router = APIRouter()
 basic_auth = HTTPBasic()
 jwt_auth = HTTPBearer()
 
 @router.post("/auth/login")
-async def get_tokens(credentials: HTTPBasicCredentials = Depends(basic_auth)):
-    user = verify_user(credentials.username, credentials.password)
+async def get_api_token(credentials: HTTPBasicCredentials = Depends(basic_auth)):
+    userService = UserService(InMemoryUserRepository("conn"))
+    loginService = LoginService(user_service=userService, auth_db=AuthDB)
 
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="you are not authorized to perform login."
-        )   
-
-    access_token = generate_access_token(user, 3)
-    refresh_token = generate_refresh_token(user, 6)
-
-    return {
-        "accessToken": f"{access_token}",
-        "refreshToken": f"{refresh_token}"
-    }
+    return loginService.generate_access_and_refresh_token(username=credentials.username, password=credentials.password)
+    
 
 
 @router.post("/auth/refresh")
-async def refresh_token(credentials: HTTPAuthorizationCredentials = Depends(jwt_auth)):
+async def refresh_api_token(credentials: HTTPAuthorizationCredentials = Depends(jwt_auth)):
     refresh_token = credentials.credentials.split(" ")[0]
     
-    if refresh_token is None:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="invalid refresh token"
-        )
+    userService = UserService(InMemoryUserRepository("conn"))
+    loginService = LoginService(user_service=userService, auth_db=AuthDB)
 
-    decoded_token = decode_jwt(refresh_token)
-    print(decoded_token)
-    user_id = decoded_token["userId"]
-
-    user = get_user_by_id(user_id)
-
-    new_access_token = generate_access_token(user, 3)
-
-    update_tokens(user_id, new_access_token)
-
-    return {
-        "token": f"{new_access_token}",
-        "refresh": f"{refresh_token}"
-    }
-
+    return loginService.renovate_access_token(refresh_token=refresh_token)
 
 

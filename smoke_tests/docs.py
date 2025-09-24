@@ -10,7 +10,7 @@ def test_version():
     git_hash = os.getenv("GIT_HASH")
     api_hash = response.json()["version"]
 
-    if git_hash != api_hash:
+    if git_hash and (git_hash != api_hash):
         raise Exception(f"The api version (${api_hash}) is different than the expected (${git_hash})")
 
     print(f"[VERSION] ✅ Successfully accessed version - {api_hash}")

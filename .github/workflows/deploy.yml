@@ -1,10 +1,9 @@
-name: Deploy Production
+name: Deploy Homolog
 
 on:
     push:
         branches:
             - homolog
-            - integrate-smoke-test
     workflow_dispatch:
 
 jobs:

@@ -3,14 +3,16 @@ import os
 
 BASE_URL = os.getenv("API_URL", "http://localhost:4000")
 AUTH_URL = f"{BASE_URL}/auth/login"
+REFRESH_URL = f"{BASE_URL}/auth/refresh"
 PRIVATE_URL = f"{BASE_URL}/api/private"
 ADMIN_URL = f"{BASE_URL}/admin"
 
 def test_authentication_flow():
     test_not_authorized_login()
-    token = test_get_jwt_token()
-    test_access_private_routes(token)
-    test_not_authorized_routes(token)
+    accessToken, refreshToken = test_get_jwt_token()
+    test_access_private_routes(accessToken)
+    test_not_authorized_routes(accessToken)
+    test_refresh_token(accessToken, refreshToken)
 
 
 def test_not_authorized_login():
@@ -25,7 +27,7 @@ def test_not_authorized_login():
     print("[AUTH] ✅ Successfully blocked not authorized user to get JWT Token")
    
 
-def test_get_jwt_token() -> str:
+def test_get_jwt_token() -> tuple[str, str]:
     """
         When the user is registered on api, then it should get the accessToken and refreshToken successfully.
     """
@@ -36,14 +38,15 @@ def test_get_jwt_token() -> str:
     
     auth_body = auth_response.json()
     token = auth_body["accessToken"]
+    refreshToken = auth_body["refreshToken"]
 
-    if not token:
+    if not token or not refreshToken:
         raise Exception("Expected a valid JWT Token")
     
 
     print("[AUTH] ✅ Successfully got JWT Token for authorized user")    
 
-    return token
+    return token, refreshToken
 
 
 def test_access_private_routes(token: str):
@@ -76,3 +79,23 @@ def test_not_authorized_routes(token: str):
         raise Exception("Expected do NOT have access to the admin route")
     
     print("[AUTH] ✅ Successfully blocked non authorized user on admin route")
+
+
+def test_refresh_token(old_access_token: str, refresh_token: str):
+    headers = {
+        "Authorization": f"Bearer {refresh_token}"
+    }
+
+    refresh_response = requests.post(REFRESH_URL, headers=headers)
+    response_body = refresh_response.json()
+
+    new_access_token = response_body["accessToken"]
+    refresh_token_response = response_body["refreshToken"]
+
+    if refresh_token != refresh_token_response:
+        raise Exception("Expected the same Refresh token, got different")
+    
+    if new_access_token == old_access_token:
+        raise Exception("Expected a new access token, got the same")
+    
+    print("[AUTH] ✅ Successfully renovated the access token")

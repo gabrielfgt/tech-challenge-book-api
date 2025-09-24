@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Depends, Request, HTTPException, status
-from api.auth.jwt_utils import validate_token, admin_role
+from fastapi import APIRouter, Depends
+from api.domain.auth.jwt_utils import JWTUtils
 
 router = APIRouter()
 
-@router.get("/admin", dependencies=[Depends(validate_token), Depends(admin_role)])
+@router.get("/admin", dependencies=[Depends(JWTUtils.validate_token), Depends(JWTUtils.admin_role)])
 async def admin():
     return {"message": "You have access to this resource! 🚀🚀"}

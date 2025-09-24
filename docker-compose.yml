@@ -1,0 +1,20 @@
+version: "3.8"
+
+services:
+  app:
+    build: .
+    image: book-app:latest
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./data:/app/data
+
+  scraper:
+    build: .
+    image: book-app:latest
+    volumes:
+      - ./data:/app/data
+
+    entrypoint: ["python", "-c", "from scripts.scraper_lib import create_session, scrape_all_categories; scrape_all_categories(create_session(), output_dir='data')"]
+
+    restart: "no"

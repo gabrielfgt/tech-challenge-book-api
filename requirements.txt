@@ -7,3 +7,6 @@ opentelemetry-distro
 opentelemetry-instrumentation-fastapi
 opentelemetry-instrumentation-requests
 opentelemetry-exporter-otlp-proto-http
+polars>=1.9.0,<2.0.0
+scikit-learn>=1.4.0,<1.6.0
+numpy>=1.26.0,<2.0.0

@@ -20,8 +20,8 @@ import polars as pl
 from scripts.configs import (
     STATISTICS_DATA_DIR,
 )
-from scripts.data_cleaner import DataCleaner
-from scripts.data_transformer import DataTransformer
+from scripts.cleaning import DataCleaner
+from scripts.transformation import DataTransformer
 from scripts.feature_engineering import FeatureEngineer
 from scripts.exploratory_data_analysis import ExploratoryDataAnalysis
 

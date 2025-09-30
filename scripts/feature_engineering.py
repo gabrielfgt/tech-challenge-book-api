@@ -31,9 +31,6 @@ try:
 		MAX_CATEGORICAL_CARDINALITY_OHE,
 		PRICE_COLUMN_NAME,
 		ID_COLUMN_NAME,
-		OUTLIER_COLUMNS,
-		OUTLIER_IQR_FACTOR,
-		OUTLIER_REPORT_FILENAME,
 		TEXT_FEATURES_REPORT_FILENAME,
 		TEXT_TITLE_COLUMN,
 		TEXT_CATEGORY_COLUMN,
@@ -41,6 +38,10 @@ try:
 		FEATURE_SELECTION_K,
 		FEATURE_SELECTION_REPORT_FILENAME,
 		FEATURE_SELECTION_TARGET,
+		OUTLIER_COLUMNS,
+		OUTLIER_IQR_FACTOR,
+		OUTLIER_REPORT_FILENAME,
+		NUMERIC_DTYPES
 	)
 except ModuleNotFoundError:
 	if str(PROJECT_ROOT) not in sys.path:
@@ -63,9 +64,6 @@ except ModuleNotFoundError:
 			MAX_CATEGORICAL_CARDINALITY_OHE,
 			PRICE_COLUMN_NAME,
 			ID_COLUMN_NAME,
-			OUTLIER_COLUMNS,
-			OUTLIER_IQR_FACTOR,
-			OUTLIER_REPORT_FILENAME,
 			TEXT_FEATURES_REPORT_FILENAME,
 			TEXT_TITLE_COLUMN,
 			TEXT_CATEGORY_COLUMN,
@@ -73,20 +71,25 @@ except ModuleNotFoundError:
 			FEATURE_SELECTION_K,
 			FEATURE_SELECTION_REPORT_FILENAME,
 			FEATURE_SELECTION_TARGET,
+			OUTLIER_COLUMNS,
+			OUTLIER_IQR_FACTOR,
+			OUTLIER_REPORT_FILENAME,
 		)
 
 
 class FeatureEngineer:
 	"""Classe para geração e transformação de features.
 
-	Etapas principais:
+	Etapas principais (ordem de execução):
 	  1. Leitura do dataset processado
-	  2. Escalonamento min-max do preço
-	  3. One-hot encoding de categóricas
-	  4. Criação de features adicionais (ex: log_price, price_bucket)
-	  5. Salvamento dataset completo de features
-	  6. Split treino/teste
-	  7. Relatórios em statistics
+	  2. Split treino/teste
+	  3. Remoção de outliers (train define limites; aplica em test)
+	  4. Features de texto
+	  5. Escalonamento min-max do preço (fit em train)
+	  6. One-hot encoding de categóricas (fit em train)
+	  7. Criação de features adicionais (log, buckets)
+	  8. Seleção de features (VarianceThreshold + SelectKBest)
+	  9. Salvamento de train/test/full + relatórios
 	"""
 
 	def __init__(self, processed_filename: str = PROCESSED_BOOKS_FILENAME):
@@ -100,21 +103,151 @@ class FeatureEngineer:
 		self.categorical_report: Optional[pl.DataFrame] = None
 		self.extra_report: Optional[pl.DataFrame] = None
 		self.split_report: Optional[pl.DataFrame] = None
-		self.outlier_report: Optional[pl.DataFrame] = None
 		self.text_report: Optional[pl.DataFrame] = None
 		self.feature_selection_report: Optional[pl.DataFrame] = None
+		self.outlier_report: Optional[pl.DataFrame] = None
 
 		FEATURES_DATA_DIR.mkdir(parents=True, exist_ok=True)
 		STATISTICS_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 	# 1. Ler dataset processado
 	def read_processed(self) -> pl.DataFrame:
+		"""Lê o dataset processado do disco para self.df."""
 		if not self.processed_path.exists():
 			raise FileNotFoundError(f"Arquivo processado não encontrado: {self.processed_path}")
 		self.df = pl.read_csv(self.processed_path)
 		return self.df
 
-	# 2. Min-max scaling do preço
+	# 2. Split train/test
+	def initial_split(self) -> None:
+		"""Realiza split aleatório train/test preservando proporção configurada."""
+		if self.df is None:
+			raise ValueError("DataFrame não carregado.")
+		df = self.df
+		total = df.height
+		if total == 0:
+			raise ValueError("Dataset vazio para split.")
+		test_size = int(math.ceil(total * FEATURE_TEST_SIZE))
+		random.seed(FEATURE_RANDOM_SEED)
+		indices = list(range(total))
+		random.shuffle(indices)
+		test_indices = set(indices[:test_size])
+		train_rows = []
+		test_rows = []
+		for idx, row in enumerate(df.iter_rows()):
+			(test_rows if idx in test_indices else train_rows).append(row)
+		cols = df.columns
+		self.train_df = pl.DataFrame(train_rows, schema=cols, orient="row")
+		self.test_df = pl.DataFrame(test_rows, schema=cols, orient="row")
+		self.split_report = pl.DataFrame([
+			{
+				"total_rows": total,
+				"train_rows": self.train_df.height,
+				"test_rows": self.test_df.height,
+				"test_ratio_requested": FEATURE_TEST_SIZE,
+				"test_ratio_observed": f"{(self.test_df.height/total):.2%}",
+			}
+		])
+		self.split_report.write_csv(STATISTICS_DATA_DIR / SPLIT_REPORT_FILENAME)
+		return None
+
+	# 3. Remoção de outliers pós-split
+	def remove_outliers(self) -> None:  
+		"""Remove outliers das colunas configuradas com limites calculados no train e aplicados ao test."""
+		if self.train_df is None:
+			raise ValueError("Train não definido.")
+		train = self.train_df
+		test = self.test_df
+		records: List[Dict[str,str]] = []
+		for col in OUTLIER_COLUMNS:
+			if col not in train.columns:
+				records.append({"column": col, "status": "missing"})
+				continue
+			if train[col].dtype not in NUMERIC_DTYPES:
+				records.append({"column": col, "status": f"non_numeric({train[col].dtype})"})
+				continue
+			series = train[col]
+			q1 = series.quantile(0.25)
+			q3 = series.quantile(0.75)
+			if q1 is None or q3 is None:
+				records.append({"column": col, "status": "no_quantiles"})
+				continue
+			iqr = q3 - q1
+			if iqr == 0:
+				records.append({"column": col, "status": "zero_iqr", "q1": f"{q1}", "q3": f"{q3}"})
+				continue
+			lower = q1 - OUTLIER_IQR_FACTOR * iqr
+			upper = q3 + OUTLIER_IQR_FACTOR * iqr
+			rows_before_train = train.height
+			train = train.filter((pl.col(col) >= lower) & (pl.col(col) <= upper) | pl.col(col).is_null())
+			rows_after_train = train.height
+			removed_train = rows_before_train - rows_after_train
+			removed_test = 0
+			if test is not None and col in test.columns:
+				rows_before_test = test.height
+				test = test.filter((pl.col(col) >= lower) & (pl.col(col) <= upper) | pl.col(col).is_null())
+				removed_test = rows_before_test - test.height
+			records.append({
+				"column": col,
+				"status": "filtered",
+				"q1": f"{q1}",
+				"q3": f"{q3}",
+				"lower": f"{lower}",
+				"upper": f"{upper}",
+				"removed_train": str(removed_train),
+				"removed_test": str(removed_test),
+			})
+		self.train_df = train
+		self.test_df = test
+		self.outlier_report = pl.DataFrame(records)
+		self.outlier_report.write_csv(STATISTICS_DATA_DIR / OUTLIER_REPORT_FILENAME)
+		return None
+
+	# 4. Features de texto
+	def add_text_features(self) -> None:  # 4. Text features
+		"""Adiciona features de comprimento, contagem de palavras/tokens e flags numéricas em texto."""
+		if self.train_df is None:
+			raise ValueError("Train não definido.")
+		train = self.train_df
+		test = self.test_df
+		records: List[Dict[str,str]] = []
+		def safe_len(s):
+			return len(s) if isinstance(s, str) else 0
+		def word_count(s):
+			return len(s.split()) if isinstance(s, str) else 0
+		def has_number(s):
+			return any(ch.isdigit() for ch in s) if isinstance(s, str) else False
+		def cat_token_count(s):
+			return len(s.split('_')) if isinstance(s, str) else 0
+		if TEXT_TITLE_COLUMN in train.columns:
+			train = train.with_columns([
+				pl.col(TEXT_TITLE_COLUMN).cast(pl.Utf8).map_elements(safe_len, return_dtype=pl.Int64).alias(f"{TEXT_TITLE_COLUMN}_len"),
+				pl.col(TEXT_TITLE_COLUMN).cast(pl.Utf8).map_elements(word_count, return_dtype=pl.Int64).alias(f"{TEXT_TITLE_COLUMN}_word_count"),
+				pl.col(TEXT_TITLE_COLUMN).cast(pl.Utf8).map_elements(has_number, return_dtype=pl.Boolean).alias(f"{TEXT_TITLE_COLUMN}_has_number"),
+			])
+			if test is not None and TEXT_TITLE_COLUMN in test.columns:
+				test = test.with_columns([
+					pl.col(TEXT_TITLE_COLUMN).cast(pl.Utf8).map_elements(safe_len, return_dtype=pl.Int64).alias(f"{TEXT_TITLE_COLUMN}_len"),
+					pl.col(TEXT_TITLE_COLUMN).cast(pl.Utf8).map_elements(word_count, return_dtype=pl.Int64).alias(f"{TEXT_TITLE_COLUMN}_word_count"),
+					pl.col(TEXT_TITLE_COLUMN).cast(pl.Utf8).map_elements(has_number, return_dtype=pl.Boolean).alias(f"{TEXT_TITLE_COLUMN}_has_number"),
+				])
+			records.append({"group": TEXT_TITLE_COLUMN, "features": "len,word_count,has_number"})
+		if TEXT_CATEGORY_COLUMN in train.columns:
+			train = train.with_columns(
+				pl.col(TEXT_CATEGORY_COLUMN).cast(pl.Utf8).map_elements(cat_token_count, return_dtype=pl.Int64).alias(f"{TEXT_CATEGORY_COLUMN}_token_count")
+			)
+			if test is not None and TEXT_CATEGORY_COLUMN in test.columns:
+				test = test.with_columns(
+					pl.col(TEXT_CATEGORY_COLUMN).cast(pl.Utf8).map_elements(cat_token_count, return_dtype=pl.Int64).alias(f"{TEXT_CATEGORY_COLUMN}_token_count")
+				)
+			records.append({"group": TEXT_CATEGORY_COLUMN, "features": "token_count"})
+		self.train_df = train
+		self.test_df = test
+		self.text_report = pl.DataFrame(records) if records else pl.DataFrame([{"status": "no_text_features"}])
+		self.text_report.write_csv(STATISTICS_DATA_DIR / TEXT_FEATURES_REPORT_FILENAME)
+		return None
+
+	# 5. Min-max scaling do preço
 	def scale_price(self) -> None:
 		"""Aplica MinMaxScaler (scikit-learn) na coluna de preço, gerando coluna <price>_minmax."""
 		if self.train_df is None:
@@ -160,7 +293,7 @@ class FeatureEngineer:
 		self.scaling_report.write_csv(STATISTICS_DATA_DIR / FEATURE_ENGINEERING_REPORT_SCALING)
 		return None
 
-	# 3. One-hot encoding de categóricas
+	# 6. One-hot encoding de categóricas
 	def encode_categoricals(self) -> None:
 		"""Aplica OneHotEncoder (sklearn) em colunas categóricas elegíveis."""
 		if self.features_train is None:
@@ -182,11 +315,16 @@ class FeatureEngineer:
 			self.categorical_report.write_csv(STATISTICS_DATA_DIR / CATEGORICAL_ENCODING_REPORT_FILENAME)
 			return None
 
+		# Evita dependência de pandas/pyarrow convertendo diretamente para matriz numpy
 		encoder = OneHotEncoder(sparse_output=False, handle_unknown="ignore")
-		cat_train = train_df.select([pl.col(c).cast(pl.Utf8) for c,_ in candidate_cols]).to_pandas()
+		train_cols_values = [train_df.select(pl.col(c).cast(pl.Utf8)).to_series().to_list() for c,_ in candidate_cols]
+		# shape: (n_samples, n_features)
+		import numpy as _np  # local import para evitar poluir namespace global
+		cat_train = _np.column_stack(train_cols_values) if len(train_cols_values) > 1 else _np.array(train_cols_values[0]).reshape(-1,1)
 		encoded_train = encoder.fit_transform(cat_train)
 		if test_df is not None:
-			cat_test = test_df.select([pl.col(c).cast(pl.Utf8) for c,_ in candidate_cols]).to_pandas()
+			test_cols_values = [test_df.select(pl.col(c).cast(pl.Utf8)).to_series().to_list() for c,_ in candidate_cols]
+			cat_test = _np.column_stack(test_cols_values) if len(test_cols_values) > 1 else _np.array(test_cols_values[0]).reshape(-1,1)
 			encoded_test = encoder.transform(cat_test)
 		else:
 			encoded_test = None
@@ -211,8 +349,9 @@ class FeatureEngineer:
 		self.categorical_report.write_csv(STATISTICS_DATA_DIR / CATEGORICAL_ENCODING_REPORT_FILENAME)
 		return None
 
-	# 4. Extra feature engineering (exemplos simples)
+	# 7. Extra feature engineering (exemplos simples)
 	def create_extra_features(self) -> None:
+		"""Cria features derivadas simples (log do preço e buckets por quantis)."""
 		if self.features_train is None:
 			raise ValueError("Features train não definidas.")
 		train_df = self.features_train
@@ -277,135 +416,9 @@ class FeatureEngineer:
 		self.extra_report.write_csv(STATISTICS_DATA_DIR / EXTRA_FEATURES_REPORT_FILENAME)
 		return None
 
-	# 5. Salvar dataset completo de features
-	def save_features(self) -> Dict[str, Path]:
-		if self.features_train is None:
-			raise ValueError("Features train não geradas.")
-		full_df = self.features_train
-		if self.features_test is not None:
-			full_df = pl.concat([self.features_train, self.features_test], how="vertical_relaxed")
-		full_path = FEATURES_DATA_DIR / FEATURES_FULL_FILENAME
-		full_df.write_csv(full_path)
-		return {"full": full_path}
-
-	# 6. Split train/test
-	def initial_split(self) -> None:
-		if self.df is None:
-			raise ValueError("DataFrame não carregado.")
-		df = self.df
-		total = df.height
-		if total == 0:
-			raise ValueError("Dataset vazio para split.")
-		test_size = int(math.ceil(total * FEATURE_TEST_SIZE))
-		random.seed(FEATURE_RANDOM_SEED)
-		indices = list(range(total))
-		random.shuffle(indices)
-		test_indices = set(indices[:test_size])
-		train_rows = []
-		test_rows = []
-		for idx, row in enumerate(df.iter_rows()):
-			(test_rows if idx in test_indices else train_rows).append(row)
-		cols = df.columns
-		self.train_df = pl.DataFrame(train_rows, schema=cols)
-		self.test_df = pl.DataFrame(test_rows, schema=cols)
-		self.split_report = pl.DataFrame([
-			{
-				"total_rows": total,
-				"train_rows": self.train_df.height,
-				"test_rows": self.test_df.height,
-				"test_ratio_requested": FEATURE_TEST_SIZE,
-				"test_ratio_observed": f"{(self.test_df.height/total):.2%}",
-			}
-		])
-		self.split_report.write_csv(STATISTICS_DATA_DIR / SPLIT_REPORT_FILENAME)
-		return None
-
-	def detect_outliers(self) -> None:
-		if self.train_df is None:
-			raise ValueError("Train não definido.")
-		records: List[Dict[str, str]] = []
-		train = self.train_df
-		test = self.test_df
-		for col in OUTLIER_COLUMNS:
-			if col not in train.columns:
-				records.append({"column": col, "status": "missing"})
-				continue
-			q1, q3 = train.select([
-				pl.col(col).quantile(0.25),
-				pl.col(col).quantile(0.75)
-			]).row(0)
-			iqr = (q3 - q1) if (q3 is not None and q1 is not None) else None
-			if iqr is None:
-				continue
-			lower = q1 - OUTLIER_IQR_FACTOR * iqr
-			upper = q3 + OUTLIER_IQR_FACTOR * iqr
-			train = train.with_columns(
-				(pl.col(col).lt(lower) | pl.col(col).gt(upper)).alias(f"outlier_{col}")
-			)
-			if test is not None and col in test.columns:
-				test = test.with_columns(
-					(pl.col(col).lt(lower) | pl.col(col).gt(upper)).alias(f"outlier_{col}")
-				)
-			train_outliers = train.select(pl.col(f"outlier_{col}").sum()).item()
-			test_outliers = test.select(pl.col(f"outlier_{col}").sum()).item() if test is not None else 0
-			records.append({
-				"column": col,
-				"q1": f"{q1}",
-				"q3": f"{q3}",
-				"lower": f"{lower}",
-				"upper": f"{upper}",
-				"train_outliers": str(train_outliers),
-				"test_outliers": str(test_outliers),
-			})
-		self.train_df = train
-		self.test_df = test
-		self.outlier_report = pl.DataFrame(records)
-		self.outlier_report.write_csv(STATISTICS_DATA_DIR / OUTLIER_REPORT_FILENAME)
-		return None
-
-	def add_text_features(self) -> None:
-		if self.train_df is None:
-			raise ValueError("Train não definido.")
-		train = self.train_df
-		test = self.test_df
-		records: List[Dict[str,str]] = []
-		def safe_len(s):
-			return len(s) if isinstance(s, str) else 0
-		def word_count(s):
-			return len(s.split()) if isinstance(s, str) else 0
-		def has_number(s):
-			return any(ch.isdigit() for ch in s) if isinstance(s, str) else False
-		def cat_token_count(s):
-			return len(s.split('_')) if isinstance(s, str) else 0
-		if TEXT_TITLE_COLUMN in train.columns:
-			train = train.with_columns([
-				pl.col(TEXT_TITLE_COLUMN).cast(pl.Utf8).map_elements(safe_len, return_dtype=pl.Int64).alias(f"{TEXT_TITLE_COLUMN}_len"),
-				pl.col(TEXT_TITLE_COLUMN).cast(pl.Utf8).map_elements(word_count, return_dtype=pl.Int64).alias(f"{TEXT_TITLE_COLUMN}_word_count"),
-				pl.col(TEXT_TITLE_COLUMN).cast(pl.Utf8).map_elements(has_number, return_dtype=pl.Boolean).alias(f"{TEXT_TITLE_COLUMN}_has_number"),
-			])
-			if test is not None and TEXT_TITLE_COLUMN in test.columns:
-				test = test.with_columns([
-					pl.col(TEXT_TITLE_COLUMN).cast(pl.Utf8).map_elements(safe_len, return_dtype=pl.Int64).alias(f"{TEXT_TITLE_COLUMN}_len"),
-					pl.col(TEXT_TITLE_COLUMN).cast(pl.Utf8).map_elements(word_count, return_dtype=pl.Int64).alias(f"{TEXT_TITLE_COLUMN}_word_count"),
-					pl.col(TEXT_TITLE_COLUMN).cast(pl.Utf8).map_elements(has_number, return_dtype=pl.Boolean).alias(f"{TEXT_TITLE_COLUMN}_has_number"),
-				])
-			records.append({"group": TEXT_TITLE_COLUMN, "features": "len,word_count,has_number"})
-		if TEXT_CATEGORY_COLUMN in train.columns:
-			train = train.with_columns(
-				pl.col(TEXT_CATEGORY_COLUMN).cast(pl.Utf8).map_elements(cat_token_count, return_dtype=pl.Int64).alias(f"{TEXT_CATEGORY_COLUMN}_token_count")
-			)
-			if test is not None and TEXT_CATEGORY_COLUMN in test.columns:
-				test = test.with_columns(
-					pl.col(TEXT_CATEGORY_COLUMN).cast(pl.Utf8).map_elements(cat_token_count, return_dtype=pl.Int64).alias(f"{TEXT_CATEGORY_COLUMN}_token_count")
-				)
-			records.append({"group": TEXT_CATEGORY_COLUMN, "features": "token_count"})
-		self.train_df = train
-		self.test_df = test
-		self.text_report = pl.DataFrame(records) if records else pl.DataFrame([{"status": "no_text_features"}])
-		self.text_report.write_csv(STATISTICS_DATA_DIR / TEXT_FEATURES_REPORT_FILENAME)
-		return None
-
-	def feature_selection(self) -> None:
+	# 8. Seleção de features
+	def feature_selection(self) -> None:  
+		"""Seleciona features numéricas via VarianceThreshold e SelectKBest (f_regression)."""
 		if self.features_train is None:
 			raise ValueError("Features train não definidas.")
 		train = self.features_train
@@ -433,7 +446,8 @@ class FeatureEngineer:
 		selected = [feature_cols[i] for i in selector.get_support(indices=True)]
 		# Reduz train/test às colunas selecionadas + target + id se houver
 		cols_to_keep = selected + [FEATURE_SELECTION_TARGET]
-		if ID_COLUMN_NAME in train.columns:
+		# Garante que não haja duplicata do ID
+		if ID_COLUMN_NAME in train.columns and ID_COLUMN_NAME not in cols_to_keep:
 			cols_to_keep.append(ID_COLUMN_NAME)
 		self.features_train = train.select(cols_to_keep)
 		if test is not None:
@@ -445,10 +459,23 @@ class FeatureEngineer:
 		self.feature_selection_report.write_csv(STATISTICS_DATA_DIR / FEATURE_SELECTION_REPORT_FILENAME)
 		return None
 
+	# 9 (parcial). Salvar dataset completo de features (full); train/test salvos em run()
+	def save_features(self) -> Dict[str, Path]:
+		"""Salva dataset completo de features (train+test) e retorna caminhos."""
+		if self.features_train is None:
+			raise ValueError("Features train não geradas.")
+		full_df = self.features_train
+		if self.features_test is not None:
+			full_df = pl.concat([self.features_train, self.features_test], how="vertical_relaxed")
+		full_path = FEATURES_DATA_DIR / FEATURES_FULL_FILENAME
+		full_df.write_csv(full_path)
+		return {"full": full_path}
+
 	def run(self) -> Dict[str, Path]:
+		"""Executa pipeline: read -> split -> outliers -> texto -> escala -> OHE -> extras -> seleção -> salva."""
 		self.read_processed()
 		self.initial_split()
-		self.detect_outliers()
+		self.remove_outliers()
 		self.add_text_features()
 		# Escala preço (usa apenas train para fit)
 		self.scale_price()

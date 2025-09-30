@@ -45,6 +45,7 @@ class DatasetProfile:
 
 class ExploratoryDataAnalysis:
 	def __init__(self) -> None:
+		"""Inicializa caminhos e placeholders para DataFrames usados na EDA."""
 		self.cleaned_path: Path = CLEANED_DATA_DIR / CLEANED_BOOKS_FILENAME
 		self.processed_path: Path = PROCESSED_DATA_DIR / PROCESSED_BOOKS_FILENAME
 		self.features_path: Path = FEATURES_DATA_DIR / FEATURES_FULL_FILENAME
@@ -54,6 +55,7 @@ class ExploratoryDataAnalysis:
 
 	# ------------------------------ Carregamento ------------------------------
 	def load(self) -> None:
+		"""Carrega datasets cleaned, processed e features se existirem."""
 		if self.cleaned_path.exists():
 			self.cleaned = pl.read_csv(self.cleaned_path)
 		if self.processed_path.exists():
@@ -63,6 +65,7 @@ class ExploratoryDataAnalysis:
 
 	# ------------------------- Estatísticas numéricas -------------------------
 	def numeric_stats(self, df: pl.DataFrame) -> pl.DataFrame:
+		"""Calcula estatísticas descritivas para colunas numéricas (contagem, média, quantis, etc.)."""
 		numeric_cols = [c for c, dt in zip(df.columns, df.dtypes) if dt in NUMERIC_DTYPES]
 		if not numeric_cols:
 			return pl.DataFrame([{"status": "no_numeric_columns"}])
@@ -95,6 +98,7 @@ class ExploratoryDataAnalysis:
 
 	# ------------------------ Estatísticas categóricas ------------------------
 	def categorical_stats(self, df: pl.DataFrame) -> pl.DataFrame:
+		"""Resumo de colunas categóricas: cardinalidade, valor mais frequente e missing."""
 		cat_cols = [c for c, dt in zip(df.columns, df.dtypes) if dt in STRING_DTYPES]
 		if not cat_cols:
 			return pl.DataFrame([{"status": "no_categorical_columns"}])
@@ -124,29 +128,65 @@ class ExploratoryDataAnalysis:
 
 	# --------------------------- Correlações numéricas ------------------------
 	def correlations(self, df: pl.DataFrame) -> pl.DataFrame:
-		if FEATURE_SELECTION_TARGET not in df.columns:
-			return pl.DataFrame([{"status": "target_missing", "target": FEATURE_SELECTION_TARGET}])
-		numeric_cols = [c for c, dt in zip(df.columns, df.dtypes) if dt in NUMERIC_DTYPES and c != FEATURE_SELECTION_TARGET]
-		if not numeric_cols:
-			return pl.DataFrame([{"status": "no_numeric_columns"}])
-		target = df[FEATURE_SELECTION_TARGET]
-		if target.null_count() == target.len():
-			return pl.DataFrame([{"status": "target_all_null"}])
+		"""
+		Computa correlações Pearson.
+		Caso a coluna target configurada exista, retorna correlação de cada numérica com ela.
+		Caso contrário, gera correlações pairwise entre todas as colunas numéricas.
+		Se houver menos de duas colunas numéricas, retorna status e imprime aviso.
+		"""
+		numeric_cols_all = [c for c, dt in zip(df.columns, df.dtypes) if dt in NUMERIC_DTYPES]
+		# Caminho 1: target presente -> manter comportamento anterior
+		if FEATURE_SELECTION_TARGET in df.columns:
+			other_numeric = [c for c in numeric_cols_all if c != FEATURE_SELECTION_TARGET]
+			if not other_numeric:
+				return pl.DataFrame([{"status": "no_numeric_columns_except_target"}])
+			target = df[FEATURE_SELECTION_TARGET]
+			if target.null_count() == target.len():
+				return pl.DataFrame([{"status": "target_all_null"}])
+			rows: List[Dict[str, str | float]] = []
+			tgt_np = target.to_numpy()
+			for col in other_numeric:
+				col_np = df[col].to_numpy()
+				mask = ~np.isnan(col_np) & ~np.isnan(tgt_np)
+				if mask.sum() < 2:
+					corr = None
+				else:
+					# Evita divisão por zero se variância for zero
+					if np.nanstd(col_np[mask]) == 0 or np.nanstd(tgt_np[mask]) == 0:
+						corr = 0.0  # definição neutra para coluna constante
+					else:
+						corr = float(np.corrcoef(col_np[mask], tgt_np[mask])[0, 1])
+				rows.append({"feature": col, "correlation_with_target": corr})
+			return pl.DataFrame(rows)
+		# Caminho 2: sem target -> correlação pairwise
+		if len(numeric_cols_all) < 2:
+			print("[INFO] Correlações: menos de duas colunas numéricas disponíveis; pulando.")
+			return pl.DataFrame([
+				{"status": "insufficient_numeric_columns", "numeric_count": len(numeric_cols_all)}
+			])
 		rows: List[Dict[str, str | float]] = []
-		tgt_np = target.to_numpy()
-		for col in numeric_cols:
-			col_np = df[col].to_numpy()
-			# remover pares com NaN
-			mask = ~np.isnan(col_np) & ~np.isnan(tgt_np)
-			if mask.sum() < 2:
-				corr = None
-			else:
-				corr = float(np.corrcoef(col_np[mask], tgt_np[mask])[0, 1])
-			rows.append({"feature": col, "correlation_with_target": corr})
+		for i in range(len(numeric_cols_all)):
+			for j in range(i + 1, len(numeric_cols_all)):
+				c1 = numeric_cols_all[i]
+				c2 = numeric_cols_all[j]
+				v1 = df[c1].to_numpy()
+				v2 = df[c2].to_numpy()
+				mask = ~np.isnan(v1) & ~np.isnan(v2)
+				if mask.sum() < 2:
+					corr = None
+				else:
+					std1 = np.nanstd(v1[mask])
+					std2 = np.nanstd(v2[mask])
+					if std1 == 0 or std2 == 0:
+						corr = 0.0
+					else:
+						corr = float(np.corrcoef(v1[mask], v2[mask])[0, 1])
+				rows.append({"feature_a": c1, "feature_b": c2, "pearson_corr": corr})
 		return pl.DataFrame(rows)
 
 	# ------------------------------- Perfil geral -----------------------------
 	def build_profile(self, name: str, df: pl.DataFrame) -> pl.DataFrame:
+		"""Combina estatísticas numéricas e categóricas em um único DataFrame rotulado."""
 		num_df = self.numeric_stats(df)
 		cat_df = self.categorical_stats(df)
 		# adicionar prefixos para distinguir
@@ -156,10 +196,12 @@ class ExploratoryDataAnalysis:
 		all_cols = sorted(set(num_df.columns) | set(cat_df.columns))
 		num_df = num_df.select([pl.col(c) if c in num_df.columns else pl.lit(None).alias(c) for c in all_cols])
 		cat_df = cat_df.select([pl.col(c) if c in cat_df.columns else pl.lit(None).alias(c) for c in all_cols])
-		return pl.concat([num_df, cat_df], how="vertical")
+		# Usa vertical_relaxed para permitir coerção de tipos quando algumas colunas são None em um dos blocos
+		return pl.concat([num_df, cat_df], how="vertical_relaxed")
 
 	# ------------------------------ Execução total ----------------------------
 	def run(self) -> Dict[str, Path]:
+		"""Gera perfis para cada dataset disponível e correlações em features."""
 		self.load()
 		outputs: Dict[str, Path] = {}
 		if self.cleaned is not None:

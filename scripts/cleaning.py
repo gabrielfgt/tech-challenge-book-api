@@ -15,6 +15,7 @@ from scripts.configs import (
 	NULLS_REPORT_FILENAME,
 	DUPLICATES_REPORT_FILENAME,
 	CLEANED_BOOKS_FILENAME,
+	NUMERIC_DTYPES
 )
 
 
@@ -45,6 +46,7 @@ class DataCleaner:
 
 	# 1. Carrega o arquivo raw
 	def read_raw(self) -> pl.DataFrame:
+		"""Lê o CSV bruto e carrega em self.df."""
 		if not self.raw_file.exists():
 			raise FileNotFoundError(f"Arquivo não encontrado: {self.raw_file}")
 		self.df = pl.read_csv(self.raw_file)
@@ -52,10 +54,7 @@ class DataCleaner:
 
 	# 2. Valida colunas obrigatórias
 	def validate_columns(self) -> None:
-		"""Valida colunas obrigatórias sem interromper execução.
-
-		Armazena colunas ausentes em self.missing_columns e imprime aviso.
-		"""
+		"""Verifica colunas obrigatórias e registra ausentes sem abortar."""
 		if self.df is None:
 			raise ValueError("DataFrame não carregado. Chame read_raw() primeiro.")
 		existing = set(self.df.columns)
@@ -63,8 +62,10 @@ class DataCleaner:
 		if self.missing_columns:
 			print(f"[WARN] Colunas ausentes: {self.missing_columns}. Prosseguindo sem elas.")
 
+
 	# 3. Trata valores nulos
 	def handle_nulls(self, filename: str = NULLS_REPORT_FILENAME) -> pl.DataFrame:
+		"""Imputa ou remove colunas conforme percentual de nulos e gera relatório."""
 		if self.df is None:
 			raise ValueError("DataFrame não carregado. Chame read_raw() primeiro.")
 
@@ -88,7 +89,7 @@ class DataCleaner:
 					action = "column_dropped"
 				else:
 					# Imputação por tipo de dado
-					if pl.datatypes.is_numeric(dtype):
+					if dtype in NUMERIC_DTYPES:
 						if NUMERIC_IMPUTATION_STRATEGY == "median":
 							value = series.median()
 							strategy = "median"
@@ -144,23 +145,24 @@ class DataCleaner:
 
 	# 4. Remover duplicidades
 	def remove_duplicates(self, filename: str = DUPLICATES_REPORT_FILENAME) -> pl.DataFrame:
+		"""Elimina linhas duplicadas pelas colunas obrigatórias presentes e reporta estatísticas."""
 		if self.df is None:
 			raise ValueError("DataFrame não carregado. Chame read_raw() primeiro.")
 
-		before = self.df.height
+		rows_before = self.df.height
 		# Considerar duplicidade pelo conjunto de colunas obrigatórias presentes
 		subset = [c for c in self.REQUIRED_COLUMNS if c in self.df.columns]
 		deduped = self.df.unique(subset=subset, keep="first")
-		after = deduped.height
-		removed = before - after
+		rows_after = deduped.height
+		removed_rows = rows_before - rows_after
 
 		self.df = deduped
 		self.duplicates_report = pl.DataFrame([
 			{
-				"rows_before": before,
-				"rows_after": after,
-				"duplicates_removed": removed,
-				"pct_removed": f"{(removed / before):.2%}" if before else "0%",
+				"rows_before": rows_before,
+				"rows_after": rows_after,
+				"duplicates_removed": removed_rows,
+				"pct_removed": f"{(removed_rows / rows_before):.2%}" if rows_before else "0%",
 			}
 		])
 		dup_path = STATISTICS_DIR / filename
@@ -169,6 +171,7 @@ class DataCleaner:
 
 	# 5. Salvar dataset limpo
 	def save_cleaned(self, filename: str = CLEANED_BOOKS_FILENAME) -> Path:
+		"""Salva DataFrame final limpo em CSV e retorna o caminho."""
 		if self.df is None:
 			raise ValueError("DataFrame não carregado.")
 		out_path = CLEANED_DIR / filename
@@ -176,7 +179,7 @@ class DataCleaner:
 		return out_path
 
 	def run(self) -> Path:
-		"""Executa todo o pipeline de limpeza."""
+		"""Executa a sequência: read -> valida -> nulos -> duplicados -> salva."""
 		self.read_raw()
 		self.validate_columns()
 		self.handle_nulls()

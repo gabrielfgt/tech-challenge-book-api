@@ -22,6 +22,7 @@ try:
 		ID_COLUMN_NAME,
 		ID_REPORT_FILENAME,
 		ID_DIGITS,
+		NUMERIC_DTYPES
 	)
 except ModuleNotFoundError:  # Execução direta
 	if str(PROJECT_ROOT) not in sys.path:
@@ -40,6 +41,7 @@ except ModuleNotFoundError:  # Execução direta
 			ID_COLUMN_NAME,
 			ID_REPORT_FILENAME,
 			ID_DIGITS,
+		NUMERIC_DTYPES
 	)
 
 
@@ -67,6 +69,7 @@ class DataTransformer:
 
 	# 1. Carrega arquivo cleaned
 	def read_cleaned(self) -> pl.DataFrame:
+		"""Lê o dataset limpo do disco para self.df."""
 		if not self.cleaned_path.exists():
 			raise FileNotFoundError(f"Arquivo cleaned não encontrado: {self.cleaned_path}")
 		self.df = pl.read_csv(self.cleaned_path)
@@ -74,6 +77,7 @@ class DataTransformer:
 
 	# 2. Infere tipos de colunas
 	def infer_column_types(self) -> pl.DataFrame:
+		"""Infere e registra tipos/kinds das colunas atuais."""
 		if self.df is None:
 			raise ValueError("DataFrame não carregado. Chame read_cleaned().")
 
@@ -91,7 +95,8 @@ class DataTransformer:
 
 	@staticmethod
 	def _map_dtype(dtype: pl.DataType) -> str:
-		if pl.datatypes.is_numeric(dtype):
+		"""Mapeia dtype Polars para categoria semântica simples."""
+		if dtype in NUMERIC_DTYPES:
 			return "numeric"
 		if dtype in (pl.Utf8, pl.Categorical):
 			return "categorical"
@@ -101,6 +106,7 @@ class DataTransformer:
 
 	# 3. Normaliza colunas de texto
 	def normalize_text_columns(self) -> pl.DataFrame:
+		"""Normaliza texto (lowercase, underscores, remove símbolos) nas colunas configuradas."""
 		if self.df is None:
 			raise ValueError("DataFrame não carregado.")
 
@@ -139,6 +145,7 @@ class DataTransformer:
 
 	# 4. Transforma coluna de preço em float
 	def transform_price(self) -> pl.DataFrame:
+		"""Converte coluna de preço para float limpando formatos variados."""
 		if self.df is None:
 			raise ValueError("DataFrame não carregado.")
 		if PRICE_COLUMN_NAME not in self.df.columns:
@@ -201,6 +208,7 @@ class DataTransformer:
 
 	# 4b. Adiciona coluna de ID único aleatório de N dígitos
 	def add_unique_id(self) -> pl.DataFrame:
+		"""Gera IDs únicos pseudoaleatórios de N dígitos se coluna ainda não existir."""
 		if self.df is None:
 			raise ValueError("DataFrame não carregado.")
 		if ID_COLUMN_NAME in self.df.columns:
@@ -214,14 +222,15 @@ class DataTransformer:
 		import random
 		random.seed()
 		rows = self.df.height
-		capacity = 9 * (10 ** (ID_DIGITS - 1))  # para 4 dígitos: 9000 (1000-9999)
+		capacity = 9 * (10 ** (ID_DIGITS - 1))  # para 6 dígitos: 900000 (100000-999999)
 		if rows > capacity:
 			raise ValueError(f"Número de linhas ({rows}) excede capacidade de IDs únicos de {capacity} para {ID_DIGITS} dígitos.")
 
 		low = 10 ** (ID_DIGITS - 1)
 		high = (10 ** ID_DIGITS) - 1
-		population = list(range(low, high + 1))
-		ids = random.sample(population, rows)
+		# Evita materializar lista inteira se dataset crescer; para tamanho atual é seguro, mas mantemos abordagem direta.
+		population_range = range(low, high + 1)
+		ids = random.sample(population_range, rows)
 
 		self.df = self.df.with_columns(pl.Series(ID_COLUMN_NAME, ids))
 		self.id_report = pl.DataFrame([
@@ -239,6 +248,7 @@ class DataTransformer:
 
 	# 5. Salva arquivo processado
 	def save_processed(self, filename: str = PROCESSED_BOOKS_FILENAME) -> Path:
+		"""Salva DataFrame processado em CSV e retorna caminho."""
 		if self.df is None:
 			raise ValueError("DataFrame não carregado.")
 		out_path = PROCESSED_DATA_DIR / filename
@@ -246,6 +256,7 @@ class DataTransformer:
 		return out_path
 
 	def run(self) -> Path:
+		"""Executa pipeline: read -> tipos -> id -> texto -> preço -> salva."""
 		self.read_cleaned()
 		self.infer_column_types()
 		self.add_unique_id()

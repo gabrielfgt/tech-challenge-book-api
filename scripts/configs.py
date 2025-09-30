@@ -7,6 +7,7 @@ em múltiplos scripts para evitar duplicação e facilitar manutenção.
 from __future__ import annotations
 from pathlib import Path
 from typing import Final
+import polars as pl
 
 # Diretórios base
 PROJECT_ROOT: Final[Path] = Path(__file__).resolve().parent.parent
@@ -30,6 +31,13 @@ BOOKS_REQUIRED_COLUMNS: Final[list[str]] = [
 	"category",
 	"image",
 ]
+
+# Conjunto de dtypes numéricos suportados (evita uso de API inexistente como pl.datatypes.is_numeric)
+NUMERIC_DTYPES = {
+	pl.Int8, pl.Int16, pl.Int32, pl.Int64,
+	pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64,
+	pl.Float32, pl.Float64,
+}
 
 # Limiares e parâmetros de limpeza
 NULL_THRESHOLD_BOOKS: Final[float] = 0.40  # 40%
@@ -82,7 +90,7 @@ FEATURE_SELECTION_TARGET: Final[str] = PRICE_COLUMN_NAME  # assumindo price como
 # ID generation
 ID_COLUMN_NAME: Final[str] = "id"
 ID_REPORT_FILENAME: Final[str] = "id_generation_report.csv"
-ID_DIGITS: Final[int] = 4  # 4 dígitos -> intervalo 1000-9999 (9000 combinações)
+ID_DIGITS: Final[int] = 6  # 6 dígitos -> intervalo 100000-999999 (900000 combinações)
 
 # EDA reports
 EDA_CLEANED_PROFILE_FILENAME: Final[str] = "eda_cleaned_profile.csv"
@@ -144,4 +152,5 @@ __all__ = [
 	"EDA_PROCESSED_PROFILE_FILENAME",
 	"EDA_FEATURES_PROFILE_FILENAME",
 	"EDA_CORRELATION_REPORT_FILENAME",
+	"NUMERIC_DTYPES",
 ]

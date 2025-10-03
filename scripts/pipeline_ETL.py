@@ -15,7 +15,9 @@ from dataclasses import dataclass
 from typing import List, Dict
 from pathlib import Path
 import traceback
-import polars as pl
+
+# Utilitários comuns
+from scripts.utils import ReportGenerator
 
 from scripts.configs import (
     STATISTICS_DATA_DIR,
@@ -100,7 +102,7 @@ class PipelineRunner:
         else:
             self.results.append(StepResult("eda", "skipped", 0.0))
 
-        # Salva relatório consolidado
+        # Salva relatório consolidado usando ReportGenerator
         report_rows: List[Dict[str, str | float]] = []
         for r in self.results:
             report_rows.append(
@@ -112,9 +114,12 @@ class PipelineRunner:
                     "error": r.error or "",
                 }
             )
-        report_df = pl.DataFrame(report_rows)
-        out_path = STATISTICS_DATA_DIR / PIPELINE_REPORT_FILENAME
-        report_df.write_csv(out_path)
+        
+        out_path = ReportGenerator.save_report(
+            report_rows,
+            STATISTICS_DATA_DIR / PIPELINE_REPORT_FILENAME,
+            "execucao_pipeline"
+        )
         return out_path
 
 

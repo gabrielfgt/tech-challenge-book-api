@@ -14,6 +14,14 @@ from typing import Dict, List
 import polars as pl
 import numpy as np
 
+# Utilitários comuns
+from scripts.utils import (
+	NumericProcessor,
+	ReportGenerator,
+	NUMERIC_DTYPES,
+	STRING_DTYPES
+)
+
 try:  # imports locais via execução direta
 	from scripts.configs import (  # type: ignore
 		CLEANED_DATA_DIR,
@@ -33,8 +41,7 @@ except Exception:  # pragma: no cover
 	from configs import *  # type: ignore  # noqa
 
 
-NUMERIC_DTYPES = {pl.Int8, pl.Int16, pl.Int32, pl.Int64, pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64, pl.Float32, pl.Float64}
-STRING_DTYPES = {pl.Utf8, pl.Categorical}
+
 
 
 @dataclass
@@ -147,15 +154,7 @@ class ExploratoryDataAnalysis:
 			tgt_np = target.to_numpy()
 			for col in other_numeric:
 				col_np = df[col].to_numpy()
-				mask = ~np.isnan(col_np) & ~np.isnan(tgt_np)
-				if mask.sum() < 2:
-					corr = None
-				else:
-					# Evita divisão por zero se variância for zero
-					if np.nanstd(col_np[mask]) == 0 or np.nanstd(tgt_np[mask]) == 0:
-						corr = 0.0  # definição neutra para coluna constante
-					else:
-						corr = float(np.corrcoef(col_np[mask], tgt_np[mask])[0, 1])
+				corr = NumericProcessor.safe_correlation(col_np, tgt_np)
 				rows.append({"feature": col, "correlation_with_target": corr})
 			return pl.DataFrame(rows)
 		# Caminho 2: sem target -> correlação pairwise
@@ -171,16 +170,7 @@ class ExploratoryDataAnalysis:
 				c2 = numeric_cols_all[j]
 				v1 = df[c1].to_numpy()
 				v2 = df[c2].to_numpy()
-				mask = ~np.isnan(v1) & ~np.isnan(v2)
-				if mask.sum() < 2:
-					corr = None
-				else:
-					std1 = np.nanstd(v1[mask])
-					std2 = np.nanstd(v2[mask])
-					if std1 == 0 or std2 == 0:
-						corr = 0.0
-					else:
-						corr = float(np.corrcoef(v1[mask], v2[mask])[0, 1])
+				corr = NumericProcessor.safe_correlation(v1, v2)
 				rows.append({"feature_a": c1, "feature_b": c2, "pearson_corr": corr})
 		return pl.DataFrame(rows)
 
@@ -204,26 +194,48 @@ class ExploratoryDataAnalysis:
 		"""Gera perfis para cada dataset disponível e correlações em features."""
 		self.load()
 		outputs: Dict[str, Path] = {}
+		
+		# Gerar perfis usando ReportGenerator
 		if self.cleaned is not None:
 			prof = self.build_profile("cleaned", self.cleaned)
-			p = STATISTICS_DATA_DIR / EDA_CLEANED_PROFILE_FILENAME
-			prof.write_csv(p)
+			prof_data = prof.to_dicts()
+			p = ReportGenerator.save_report(
+				prof_data, 
+				STATISTICS_DATA_DIR / EDA_CLEANED_PROFILE_FILENAME,
+				"perfil_dataset_limpo"
+			)
 			outputs["cleaned_profile"] = p
+			
 		if self.processed is not None:
 			prof = self.build_profile("processed", self.processed)
-			p = STATISTICS_DATA_DIR / EDA_PROCESSED_PROFILE_FILENAME
-			prof.write_csv(p)
+			prof_data = prof.to_dicts()
+			p = ReportGenerator.save_report(
+				prof_data,
+				STATISTICS_DATA_DIR / EDA_PROCESSED_PROFILE_FILENAME,
+				"perfil_dataset_processado"
+			)
 			outputs["processed_profile"] = p
+			
 		if self.features is not None:
 			prof = self.build_profile("features", self.features)
-			p = STATISTICS_DATA_DIR / EDA_FEATURES_PROFILE_FILENAME
-			prof.write_csv(p)
+			prof_data = prof.to_dicts()
+			p = ReportGenerator.save_report(
+				prof_data,
+				STATISTICS_DATA_DIR / EDA_FEATURES_PROFILE_FILENAME,
+				"perfil_dataset_features"
+			)
 			outputs["features_profile"] = p
+			
 			# correlações apenas no dataset de features (normalmente já pós seleção)
 			corr_df = self.correlations(self.features)
-			corr_path = STATISTICS_DATA_DIR / EDA_CORRELATION_REPORT_FILENAME
-			corr_df.write_csv(corr_path)
+			corr_data = corr_df.to_dicts()
+			corr_path = ReportGenerator.save_report(
+				corr_data,
+				STATISTICS_DATA_DIR / EDA_CORRELATION_REPORT_FILENAME,
+				"correlacoes_features"
+			)
 			outputs["features_correlations"] = corr_path
+			
 		return outputs
 
 

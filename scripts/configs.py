@@ -19,7 +19,7 @@ FEATURES_DATA_DIR: Final[Path] = DATA_DIR / "features"
 STATISTICS_DATA_DIR: Final[Path] = DATA_DIR / "statistics"
 
 # Arquivos
-RAW_BOOKS_FILENAME: Final[str] = "raw_books.csv"
+RAW_BOOKS_FILENAME: Final[str] = "all_books_with_images.csv"
 RAW_BOOKS_FILE: Final[Path] = RAW_DATA_DIR / RAW_BOOKS_FILENAME
 
 # Colunas obrigatórias do dataset de livros
@@ -30,6 +30,9 @@ BOOKS_REQUIRED_COLUMNS: Final[list[str]] = [
 	"availability",
 	"category",
 	"image",
+	"product_page",
+	"stock",
+	"image_base64",
 ]
 
 # Conjunto de dtypes numéricos suportados (evita uso de API inexistente como pl.datatypes.is_numeric)
@@ -53,6 +56,7 @@ CLEANED_BOOKS_FILENAME: Final[str] = "cleaned_books.csv"
 PROCESSED_BOOKS_FILENAME: Final[str] = "processed_books.csv"
 TEXT_NORMALIZE_COLUMNS: Final[list[str]] = ["title", "category"]
 PRICE_COLUMN_NAME: Final[str] = "price"
+STOCK_COLUMN_NAME: Final[str] = "stock"
 TEXT_NORMALIZE_REPORT_FILENAME: Final[str] = "text_normalization_report.csv"
 PRICE_TRANSFORM_REPORT_FILENAME: Final[str] = "price_transform_report.csv"
 COLUMN_TYPES_REPORT_FILENAME: Final[str] = "column_types_report.csv"
@@ -72,7 +76,7 @@ FEATURE_RANDOM_SEED: Final[int] = 42
 MAX_CATEGORICAL_CARDINALITY_OHE: Final[int] = 30  # se passar disso, sugerir outra técnica
 
 # Outlier detection / feature engineering extras
-OUTLIER_COLUMNS: Final[list[str]] = [PRICE_COLUMN_NAME]  # colunas numéricas para detecção
+OUTLIER_COLUMNS: Final[list[str]] = [PRICE_COLUMN_NAME, STOCK_COLUMN_NAME]  # colunas numéricas para detecção
 OUTLIER_IQR_FACTOR: Final[float] = 1.5
 OUTLIER_REPORT_FILENAME: Final[str] = "outlier_report.csv"
 
@@ -153,4 +157,5 @@ __all__ = [
 	"EDA_FEATURES_PROFILE_FILENAME",
 	"EDA_CORRELATION_REPORT_FILENAME",
 	"NUMERIC_DTYPES",
+	"STOCK_COLUMN_NAME",
 ]

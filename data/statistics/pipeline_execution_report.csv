@@ -1,5 +1,0 @@
-step,status,duration_sec,artifact,error
-data_cleaning,success,0.03,C:\Users\WILLIA~1.MEN\AppData\Local\Temp\tmp8swcu0p5\data\cleaned\cleaned_books.csv,""
-data_transformation,success,0.041,C:\Users\WILLIA~1.MEN\AppData\Local\Temp\tmp8swcu0p5\data\processed\processed_books.csv,""
-feature_engineering,success,0.052,"train=C:\Users\WILLIA~1.MEN\AppData\Local\Temp\tmp8swcu0p5\data\features\train_features.csv,test=C:\Users\WILLIA~1.MEN\AppData\Local\Temp\tmp8swcu0p5\data\features\test_features.csv,full=C:\Users\WILLIA~1.MEN\AppData\Local\Temp\tmp8swcu0p5\data\features\features_full.csv",""
-eda,success,0.062,"cleaned_profile=C:\Users\WILLIA~1.MEN\AppData\Local\Temp\tmp8swcu0p5\data\statistics\eda_cleaned_profile.csv,processed_profile=C:\Users\WILLIA~1.MEN\AppData\Local\Temp\tmp8swcu0p5\data\statistics\eda_processed_profile.csv,features_profile=C:\Users\WILLIA~1.MEN\AppData\Local\Temp\tmp8swcu0p5\data\statistics\eda_features_profile.csv,features_correlations=C:\Users\WILLIA~1.MEN\AppData\Local\Temp\tmp8swcu0p5\data\statistics\eda_correlations.csv",""

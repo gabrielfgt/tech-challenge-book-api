@@ -3,6 +3,12 @@ from pathlib import Path
 from typing import Optional, List, Dict
 import polars as pl
 
+# Utilitários comuns
+from scripts.utils import (
+	DataFrameValidator,
+	DirectoryManager,
+)
+
 # Configurações centralizadas
 from scripts.configs import (
 	RAW_BOOKS_FILE,
@@ -41,24 +47,23 @@ class DataCleaner:
 		self.missing_columns: List[str] = []
 
 		# Garante diretórios necessários
-		STATISTICS_DIR.mkdir(parents=True, exist_ok=True)
-		CLEANED_DIR.mkdir(parents=True, exist_ok=True)
+		DirectoryManager.ensure_directories(STATISTICS_DIR, CLEANED_DIR)
 
 	# 1. Carrega o arquivo raw
 	def read_raw(self) -> pl.DataFrame:
 		"""Lê o CSV bruto e carrega em self.df."""
-		if not self.raw_file.exists():
-			raise FileNotFoundError(f"Arquivo não encontrado: {self.raw_file}")
+		DirectoryManager.validate_file_exists(self.raw_file, "Arquivo bruto")
 		self.df = pl.read_csv(self.raw_file)
 		return self.df
 
 	# 2. Valida colunas obrigatórias
 	def validate_columns(self) -> None:
 		"""Verifica colunas obrigatórias e registra ausentes sem abortar."""
-		if self.df is None:
-			raise ValueError("DataFrame não carregado. Chame read_raw() primeiro.")
-		existing = set(self.df.columns)
-		self.missing_columns = [c for c in self.REQUIRED_COLUMNS if c not in existing]
+		DataFrameValidator.validate_not_none(self.df, "DataFrame")
+		validation_result = DataFrameValidator.validate_required_columns(
+			self.df, self.REQUIRED_COLUMNS, raise_on_missing=False
+		)
+		self.missing_columns = validation_result.missing_columns or []
 		if self.missing_columns:
 			print(f"[WARN] Colunas ausentes: {self.missing_columns}. Prosseguindo sem elas.")
 
@@ -66,8 +71,7 @@ class DataCleaner:
 	# 3. Trata valores nulos
 	def handle_nulls(self, filename: str = NULLS_REPORT_FILENAME) -> pl.DataFrame:
 		"""Imputa ou remove colunas conforme percentual de nulos e gera relatório."""
-		if self.df is None:
-			raise ValueError("DataFrame não carregado. Chame read_raw() primeiro.")
+		DataFrameValidator.validate_not_none(self.df, "DataFrame")
 
 		total_rows = self.df.height
 		report_rows: List[Dict[str, str]] = []
@@ -146,12 +150,14 @@ class DataCleaner:
 	# 4. Remover duplicidades
 	def remove_duplicates(self, filename: str = DUPLICATES_REPORT_FILENAME) -> pl.DataFrame:
 		"""Elimina linhas duplicadas pelas colunas obrigatórias presentes e reporta estatísticas."""
-		if self.df is None:
-			raise ValueError("DataFrame não carregado. Chame read_raw() primeiro.")
+		DataFrameValidator.validate_not_none(self.df, "DataFrame")
 
 		rows_before = self.df.height
-		# Considerar duplicidade pelo conjunto de colunas obrigatórias presentes
-		subset = [c for c in self.REQUIRED_COLUMNS if c in self.df.columns]
+		# Considerar duplicidade pela coluna title principalmente (mais relevante para livros)
+		subset = ["title", "price"] if all(c in self.df.columns for c in ["title", "price"]) else ["title"]
+		if "title" not in self.df.columns:
+			# Fallback para colunas obrigatórias presentes
+			subset = [c for c in self.REQUIRED_COLUMNS if c in self.df.columns]
 		deduped = self.df.unique(subset=subset, keep="first")
 		rows_after = deduped.height
 		removed_rows = rows_before - rows_after
@@ -163,27 +169,50 @@ class DataCleaner:
 				"rows_after": rows_after,
 				"duplicates_removed": removed_rows,
 				"pct_removed": f"{(removed_rows / rows_before):.2%}" if rows_before else "0%",
+				"deduplication_columns": ", ".join(subset),
 			}
 		])
 		dup_path = STATISTICS_DIR / filename
 		self.duplicates_report.write_csv(dup_path)
 		return self.df
 
+	# 5. Limpar categorias problemáticas
+	def clean_categories(self) -> pl.DataFrame:
+		"""Limpa categorias problemáticas identificadas na análise."""
+		DataFrameValidator.validate_not_none(self.df, "DataFrame")
+		
+		if "category" not in self.df.columns:
+			print("[WARN] Coluna 'category' não encontrada. Pulando limpeza de categorias.")
+			return self.df
+			
+		# Substituir categorias problemáticas
+		self.df = self.df.with_columns(
+			pl.when(
+				pl.col("category").str.to_lowercase().str.contains("comment") |
+				pl.col("category").str.to_lowercase().str.contains("default")
+			)
+			.then("Uncategorized")
+			.otherwise(pl.col("category"))
+			.alias("category")
+		)
+		
+		return self.df
+
 	# 5. Salvar dataset limpo
 	def save_cleaned(self, filename: str = CLEANED_BOOKS_FILENAME) -> Path:
 		"""Salva DataFrame final limpo em CSV e retorna o caminho."""
-		if self.df is None:
-			raise ValueError("DataFrame não carregado.")
+		DataFrameValidator.validate_not_none(self.df, "DataFrame")
 		out_path = CLEANED_DIR / filename
 		self.df.write_csv(out_path)
 		return out_path
 
 	def run(self) -> Path:
-		"""Executa a sequência: read -> valida -> nulos -> duplicados -> salva."""
+		"""Executa a sequência: read -> valida -> nulos -> duplicados -> categorias -> salva."""
 		self.read_raw()
 		self.validate_columns()
 		self.handle_nulls()
 		self.remove_duplicates()
+		self.clean_categories()  # Nova etapa
 		cleaned_path = self.save_cleaned()
 		return cleaned_path
 

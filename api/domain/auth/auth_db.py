@@ -21,6 +21,14 @@ def get_refresh_token_record_by_user_id(user_id: int) -> Optional[str]:
     
     return refresh_token_found[0]
 
+def get_token_record_by_refresh_token(refresh_token: str) -> Optional[dict]:
+    token_record_found = [t for t in TOKENS if t["refresh_token"] == refresh_token]
+
+    if len(token_record_found) == 0:
+        return None
+    
+    return token_record_found[0]
+
 
 def verify_refresh_token(refresh_token: str) -> Optional[str]:
     refresh = [t["refresh_token"] for t in TOKENS if t["refresh_token"] == refresh_token]

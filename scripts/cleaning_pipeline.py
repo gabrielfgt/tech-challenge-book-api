@@ -7,7 +7,7 @@ categorias problemáticas e transformação da coluna availability.
 """
 
 import polars as pl
-import uuid
+import random
 from pathlib import Path
 import logging
 from typing import Tuple
@@ -61,9 +61,17 @@ def create_unique_id(df: pl.DataFrame) -> pl.DataFrame:
     """
     logger.info("Criando IDs únicos...")
     
-    # Criar IDs únicos usando UUID4
+    # Criar IDs únicos usando números aleatórios
     n_rows = df.height
-    ids = [f"book_{uuid.uuid4().hex[:8]}" for _ in range(n_rows)]
+    ids = []
+    used_ids = set()
+    
+    # Gerar IDs únicos aleatórios
+    while len(ids) < n_rows:
+        new_id = random.randint(100000, 999999)  # 6 dígitos
+        if new_id not in used_ids:
+            ids.append(new_id)
+            used_ids.add(new_id)
     
     # Adicionar coluna ID como primeira coluna
     df_with_id = df.with_columns(
@@ -74,11 +82,8 @@ def create_unique_id(df: pl.DataFrame) -> pl.DataFrame:
     unique_ids = df_with_id["id"].n_unique()
     if unique_ids != n_rows:
         logger.warning(f"IDs duplicados detectados! {unique_ids} únicos de {n_rows} total")
-        # Regenerar IDs em caso de duplicatas (muito improvável com UUID)
-        ids = [f"book_{i:06d}_{uuid.uuid4().hex[:6]}" for i in range(n_rows)]
-        df_with_id = df_with_id.with_columns(pl.Series("id", ids))
     
-    logger.info(f"✅ {n_rows} IDs únicos criados!")
+    logger.info(f"✅ {n_rows} IDs únicos aleatórios criados!")
     return df_with_id
 
 
@@ -230,7 +235,7 @@ def run_cleaning_pipeline(input_path: str, output_path: str, config: PipelineCon
     Returns:
         Tuple[pl.DataFrame, dict]: DataFrame processado e estatísticas
     """
-    logger.info(f"Iniciando pipeline de limpeza...")
+    logger.info("Iniciando pipeline de limpeza...")
     logger.info(f"Entrada: {input_path}")
     logger.info(f"Saída: {output_path}")
     
@@ -277,7 +282,7 @@ def run_cleaning_pipeline(input_path: str, output_path: str, config: PipelineCon
         df.write_csv(output_path)
         stats['processed_records'] = df.height
         
-        logger.info(f"✅ Pipeline de limpeza concluída!")
+        logger.info("✅ Pipeline de limpeza concluída!")
         logger.info(f"✅ Dados salvos em: {output_path}")
         logger.info(f"📊 Estatísticas: {stats}")
         

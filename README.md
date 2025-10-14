@@ -1,26 +1,68 @@
 # tech-challenge-book-api
 Projeto desenvolvido para o Tech Challenge de criação de uma API pública para consulta de livros, com dados obtidos via web scraping
 
-## Setup Development Environment
-- Install [Python](https://www.python.org/downloads/release/python-3120/)
-- Install poetry
-```shell
-pip install poetry
-```
-- Run the configuration below:
-```shell
- poetry config virtualenvs.in-project true
+# Start Project (without docker compose)
+
+## 1 - Start virtual env
+```bash
+python -m venv .venv
 ```
 
-## Start Local
+## 2 - Activate venv (linux)
 
-- Windows:
+### - Linux
+```bash
+source ./.venv/bin/activate
+```
+
+### - Windows
 ```powershell
-poetry install --no-root
-poetry run uvicorn api.main:api --port 4000 --reload
+.\.venv\Scripts\Activate.ps1
 ```
 
-- Linux
-```shell
-./ops_scripts/start_local.sh
+## 3 - Install dependencies
+```bash
+pip install -r requirements.txt
 ```
+
+## 4 - Create the `.env` file
+```md
+JWT_SECRET=example_secret
+USE_DATABASE=False
+```
+
+## 5 - Run project
+### - Linux
+```bash
+./devops/start_local.sh
+```
+### - Windows
+```powershell
+.\devops\start_local.ps1
+```
+
+# Running the project with **Docker Compose**
+## 1 - Create and fill the `.env` file
+```md
+JWT_SECRET=example_secret
+USE_DATABASE=False
+DB_HOST=postgres
+DB_USER=admin
+DB_PASSWORD=admin
+```
+## 2 - Start Docker Compose
+
+```bash
+docker compose up
+```
+
+# App components:
+- Api: Running on `http://localhost:4000`
+- Postgres: Running on `localhost:5432`
+- PgAdmin4: Running on `http://localhost:5050`
+  - login: `admin@admin.com`
+  - password: `admin`
+  - connection:
+    - host: `postgres`
+    - username: `admin`
+    - password: `admin`

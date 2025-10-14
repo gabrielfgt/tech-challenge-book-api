@@ -1,20 +1,67 @@
-version: "3.8"
-
 services:
   app:
+    environment:
+      USE_DATABASE: ${USE_DATABASE}
+      DB_HOST: ${DB_HOST}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+
     build: .
     image: book-app:latest
     ports:
       - "4000:4000"
     volumes:
-      - ./data:/app/data
+      - ./src:/app/src
+    command: uvicorn src.app:api --host 0.0.0.0 --port 4000 --reload
+    networks:
+    - postgres_net
 
-  scraper:
-    build: .
-    image: book-app:latest
+  postgres:
+    image: postgres:17.6
+    container_name: postgres-db
+    restart: always
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin
+      POSTGRES_DB: book-api
+    ports:
+      - "5432:5432"
     volumes:
-      - ./data:/app/data
+      - ./init:/docker-entrypoint-initdb.d
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - postgres_net
 
-    entrypoint: ["python", "-c", "from scripts.scraper_lib import create_session, scrape_all_categories; scrape_all_categories(create_session(), output_dir='data')"]
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: pgadmin
+    restart: always
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+    networks:
+      - postgres_net
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
 
-    restart: "no"
+  # scraper:
+  #   build: .
+  #   image: book-app:latest
+  #   volumes:
+  #     - ./data:/app/data
+
+  #   entrypoint: ["python", "-c", "from src.scripts.scraper_lib import create_session, scrape_all_categories; scrape_all_categories(create_session(), output_dir='data/raw')"]
+
+  #   restart: "no"
+
+volumes:
+  postgres_data:
+  pgadmin_data:
+
+networks:
+  postgres_net:

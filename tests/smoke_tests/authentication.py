@@ -1,5 +1,6 @@
 import requests
 import os
+import time
 
 BASE_URL = os.getenv("API_URL", "http://localhost:4000")
 AUTH_URL = f"{BASE_URL}/auth/login"
@@ -82,6 +83,8 @@ def test_not_authorized_routes(token: str):
 
 
 def test_refresh_token(old_access_token: str, refresh_token: str):
+    time.sleep(1)
+
     headers = {
         "Authorization": f"Bearer {refresh_token}"
     }
@@ -89,8 +92,11 @@ def test_refresh_token(old_access_token: str, refresh_token: str):
     refresh_response = requests.post(REFRESH_URL, headers=headers)
     response_body = refresh_response.json()
 
+    if refresh_response.status_code != 200:
+        raise Exception(f"Expected status code to be 200, got {refresh_response.status_code}")
+
     new_access_token = response_body["accessToken"]
-    refresh_token_response = response_body["refreshToken"]
+    refresh_token_response = response_body["refreshToken"]    
 
     if refresh_token != refresh_token_response:
         raise Exception("Expected the same Refresh token, got different")

@@ -8,7 +8,7 @@ async def health_check():
     return {"message": "ok"}
 
 @router.get("/version")
-async def bersion():
+async def version():
     return {
         "version": os.getenv("GIT_HASH", "unknown-version")
     }

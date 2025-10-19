@@ -3,7 +3,7 @@ name: Deploy Homolog
 on:
     push:
         branches:
-            - homolog
+            - main
     workflow_dispatch:
 
 jobs:

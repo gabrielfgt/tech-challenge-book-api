@@ -15,4 +15,4 @@ EXPOSE 4000
 ARG GIT_HASH=unknown
 ENV GIT_HASH=$GIT_HASH
 
-CMD ["opentelemetry-instrument", "uvicorn", "src.main:api", "--host", "0.0.0.0", "--port", "4000"]
+CMD ["opentelemetry-instrument", "uvicorn", "src.app:api", "--host", "0.0.0.0", "--port", "4000"]

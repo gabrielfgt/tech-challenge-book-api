@@ -1,0 +1,5 @@
+### O jwt token deve ter a role de admin
+
+GET http://localhost:4000/admin
+Authorization: Bearer token_here
+

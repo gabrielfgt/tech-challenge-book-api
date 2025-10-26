@@ -2,7 +2,7 @@ import requests
 import os
 import time
 
-BASE_URL = os.getenv("API_URL", "http://localhost:4000")
+BASE_URL = os.getenv("API_URL", "http://localhost:4000/v1")
 AUTH_URL = f"{BASE_URL}/auth/login"
 REFRESH_URL = f"{BASE_URL}/auth/refresh"
 PRIVATE_URL = f"{BASE_URL}/api/private"
